@@ -30,13 +30,19 @@ class DDPM(nn.Module):
         if dimensions not in [1, 2, 3]:
             raise ValueError(f"Input must have 1, 2, or 3 spatial dimensions to use this architecture, received {dimensions}.")
         self.conditioned = False
-        for c in conditioning:
+        self.input_cond_channels = None
+        self.conditioning = conditioning
+        for i,c in enumerate(conditioning):
             if c.lower() not in ["none", "time", "input"]:
                 raise ValueError(f"Conditioning must be in ['None', 'Time', 'Input'], received {c}")
             if c.lower() != "none":
                 self.conditioned = True
-                if conditioning_channels is not None:
-                    raise ValueError("conditioning_channels must be provided when the network is conditioned")
+                # if conditioning_channels is not None:
+                #     raise ValueError("conditioning_channels must be provided when the network is conditioned")
+                if c.lower() == "input":
+                    self.input_cond_channels = conditioning_channels[i]
+                    
+                    
             elif c.lower() == "none" and self.conditioned:
                 raise ValueError(f"Cannot have a mix of 'None' and other type of conditioning, received the list {conditioning}")
         
@@ -50,7 +56,8 @@ class DDPM(nn.Module):
             "dropout": dropout,
             "attention": attention,
             "dimensions": dimensions,
-            "conditioning": conditioning
+            "conditioning": conditioning,
+            "conditioning_channels": conditioning_channels
         }
         self.dimensions = dimensions
         self.act = act = get_activation(activation_type=activation_type)
@@ -59,6 +66,11 @@ class DDPM(nn.Module):
         self.nf = nf
         self.num_res_blocks = num_res_blocks
         self.num_resolutions = num_resolutions = len(ch_mult)
+
+        if self.conditioned and self.input_cond_channels is not None:
+            in_channels = channels + self.input_cond_channels
+        else:
+            in_channels = channels
 
         AttnBlock = SelfAttentionBlock
         ResnetBlock = functools.partial(DDPMResnetBlock, act=act, temb_dim=4 * nf, dropout=dropout, dimensions=dimensions)
@@ -71,7 +83,7 @@ class DDPM(nn.Module):
 
         # Downsampling block
         Downsample = functools.partial(DownsampleLayer, dimensions=dimensions)
-        modules.append(conv3x3(channels, nf))
+        modules.append(conv3x3(in_channels, nf))
         hs_c = [nf]
         in_ch = nf
         for i_level in range(num_resolutions):
@@ -106,7 +118,16 @@ class DDPM(nn.Module):
         modules.append(conv3x3(in_ch, channels))
         self.all_modules = nn.ModuleList(modules)
 
-    def forward(self, t, x):
+    def forward(self, t, x, cond=None):
+        if self.conditioned:
+            if cond is None:
+                raise ValueError("Model is conditioned but no conditioning information was provided")
+            if "Input" in self.conditioning:
+                cond_channels = self.input_cond_channels
+                if cond.shape[1] != cond_channels:
+                    raise ValueError(f"Expected conditioning information with {cond_channels} channels, but got {cond.shape[1]} channels instead.")
+                x = torch.cat([x, cond], dim=1)
+
         modules = self.all_modules
         m_idx = 0
         temb = t
