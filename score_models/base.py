@@ -261,6 +261,7 @@ class ScoreModelBase(Module, ABC):
         learning_rate=1e-4,
         ema_decay=0.9999,
         batch_size=1,
+        num_workers=0,
         shuffle=False,
         patience=float('inf'),
         tolerance=0,
@@ -308,7 +309,7 @@ class ScoreModelBase(Module, ABC):
         """
         optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
         ema = ExponentialMovingAverage(self.model.parameters(), decay=ema_decay)
-        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=False)
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=False, num_workers=num_workers)
         if n_iterations_in_epoch is None:
             n_iterations_in_epoch = len(dataloader)
         if checkpoints_directory is None:
