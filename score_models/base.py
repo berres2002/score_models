@@ -309,7 +309,7 @@ class ScoreModelBase(Module, ABC):
         """
         optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
         ema = ExponentialMovingAverage(self.model.parameters(), decay=ema_decay)
-        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=False, num_workers=num_workers)
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=False, num_workers=num_workers, pin_memory=True)
         if n_iterations_in_epoch is None:
             n_iterations_in_epoch = len(dataloader)
         if checkpoints_directory is None:
@@ -418,6 +418,8 @@ class ScoreModelBase(Module, ABC):
                 else:
                     x = X
                     args = []
+                x = x.to(self.device, non_blocking=True)
+                args = [arg.to(self.device, non_blocking=True) for arg in args]
                 if preprocessing_fn is not None:
                     x = preprocessing_fn(x)
                 optimizer.zero_grad()
