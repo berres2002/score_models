@@ -218,7 +218,8 @@ class ScoreModelBase(Module, ABC):
             steps, 
             condition:list=[],
             likelihood_score_fn:Callable=None,
-            guidance_factor=1.
+            guidance_factor=1.,
+            verbose=1
             ):
         """
         An Euler-Maruyama integration of the model SDE
@@ -227,6 +228,7 @@ class ScoreModelBase(Module, ABC):
         steps: Number of Euler-Maruyam steps to perform
         likelihood_score_fn: Add an additional drift to the sampling for posterior sampling. Must have the signature f(t, x)
         guidance_factor: Multiplicative factor for the likelihood drift
+        verbose: Shows the progress bar for sample steps. 0 shows no output, 1 shows full output. Default: 1.
         """
         if not isinstance(condition, (list, tuple)):
             raise ValueError(f"condition must be a list or tuple or torch.Tensor, received {type(condition)}")
@@ -237,20 +239,34 @@ class ScoreModelBase(Module, ABC):
         x = self.sde.prior(D).sample([B]).to(self.device)
         dt = -(self.sde.T - self.sde.epsilon) / steps
         t = torch.ones(B).to(self.device) * self.sde.T
-        for _ in (pbar := tqdm(range(steps))):
-            pbar.set_description(f"Sampling from the {sampling_from} | t = {t[0].item():.1f} | sigma = {self.sde.sigma(t)[0].item():.1e}"
-                                 f"| scale ~ {x.std().item():.1e}")
-            t += dt
-            if t[0] < self.sde.epsilon: # Accounts for numerical error in the way we discretize t.
-                break
-            g = self.sde.diffusion(t, x)
-            f = self.sde.drift(t, x) - g**2 * (self.score(t, x, *condition) + guidance_factor * likelihood_score_fn(t, x))
-            dw = torch.randn_like(x) * (-dt)**(1/2)
-            x_mean = x + f * dt
-            x = x_mean + g * dw 
-            if torch.any(torch.isnan(x)):
-                print("Diffusion is not stable, NaN were produced. Stopped sampling.")
-                break
+        if verbose == 1:
+            for _ in (pbar := tqdm(range(steps))):
+                pbar.set_description(f"Sampling from the {sampling_from} | t = {t[0].item():.1f} | sigma = {self.sde.sigma(t)[0].item():.1e}"
+                                    f"| scale ~ {x.std().item():.1e}")
+                t += dt
+                if t[0] < self.sde.epsilon: # Accounts for numerical error in the way we discretize t.
+                    break
+                g = self.sde.diffusion(t, x)
+                f = self.sde.drift(t, x) - g**2 * (self.score(t, x, *condition) + guidance_factor * likelihood_score_fn(t, x))
+                dw = torch.randn_like(x) * (-dt)**(1/2)
+                x_mean = x + f * dt
+                x = x_mean + g * dw 
+                if torch.any(torch.isnan(x)):
+                    print("Diffusion is not stable, NaN were produced. Stopped sampling.")
+                    break
+        elif verbose == 0:
+            for _ in range(steps):
+                t += dt
+                if t[0] < self.sde.epsilon: # Accounts for numerical error in the way we discretize t.
+                    break
+                g = self.sde.diffusion(t, x)
+                f = self.sde.drift(t, x) - g**2 * (self.score(t, x, *condition) + guidance_factor * likelihood_score_fn(t, x))
+                dw = torch.randn_like(x) * (-dt)**(1/2)
+                x_mean = x + f * dt
+                x = x_mean + g * dw 
+                if torch.any(torch.isnan(x)):
+                    print("Diffusion is not stable, NaN were produced. Stopped sampling.")
+                    break
         return x_mean
 
     def fit(
